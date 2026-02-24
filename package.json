@@ -1,0 +1,30 @@
+{
+  "name": "aiprojecttext",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "node --watch --env-file=.env server/index.js",
+    "server": "node --env-file=.env server/index.js",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "autoprefixer": "^10.4.24",
+    "chart.js": "^4.5.1",
+    "marked": "^17.0.3",
+    "pinia": "^3.0.4",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.2.0",
+    "translate": "^3.0.1",
+    "vue": "^3.5.25",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.0",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "daisyui": "^5.5.18",
+    "vite": "^7.3.1"
+  }
+}
