@@ -17,6 +17,7 @@ const motionReady = ref(false)
 const rootRef = ref(null)
 
 const revealNodes = ref([])
+const revealResetEnabled = ref(true)
 let revealObserver = null
 
 const targetX = ref(0)
@@ -27,6 +28,9 @@ const reducedMotion = ref(false)
 let rafId = 0
 let motionQuery = null
 let onMotionChange = null
+let desktopRevealQuery = null
+let onDesktopRevealChange = null
+const PARALLAX_EPSILON = 0.01
 const theme = ref('scriptorialight')
 const THEME_STORAGE_KEY = 'scriptoria-theme-v1'
 const auth = useAuthStore()
@@ -46,10 +50,36 @@ function handleScroll() {
     scrollProgress.value = Math.min(window.scrollY / 260, 1)
 }
 
+function stopParallaxAnimation() {
+    if (!rafId) return
+    cancelAnimationFrame(rafId)
+    rafId = 0
+}
+
 function animateParallax() {
-    currentX.value += (targetX.value - currentX.value) * 0.08
-    currentY.value += (targetY.value - currentY.value) * 0.08
+    currentX.value += (targetX.value - currentX.value) * 0.1
+    currentY.value += (targetY.value - currentY.value) * 0.1
+
+    const deltaX = Math.abs(targetX.value - currentX.value)
+    const deltaY = Math.abs(targetY.value - currentY.value)
+    if (deltaX <= PARALLAX_EPSILON && deltaY <= PARALLAX_EPSILON) {
+        currentX.value = targetX.value
+        currentY.value = targetY.value
+        rafId = 0
+        return
+    }
+
     rafId = requestAnimationFrame(animateParallax)
+}
+
+function ensureParallaxAnimation() {
+    if (reducedMotion.value || rafId) return
+    rafId = requestAnimationFrame(animateParallax)
+}
+
+function updateRevealResetMode() {
+    const desktopAllowed = desktopRevealQuery ? desktopRevealQuery.matches : true
+    revealResetEnabled.value = !reducedMotion.value && desktopAllowed
 }
 
 function onHeroMove(event) {
@@ -61,11 +91,13 @@ function onHeroMove(event) {
 
     targetX.value = Math.max(-1, Math.min(1, px))
     targetY.value = Math.max(-1, Math.min(1, py))
+    ensureParallaxAnimation()
 }
 
 function onHeroLeave() {
     targetX.value = 0
     targetY.value = 0
+    ensureParallaxAnimation()
 }
 
 const heroVisualStyle = computed(() => ({
@@ -460,10 +492,14 @@ onMounted(() => {
 
     motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
     reducedMotion.value = motionQuery.matches
+    desktopRevealQuery = window.matchMedia('(min-width: 1024px)')
+    updateRevealResetMode()
 
     onMotionChange = (event) => {
         reducedMotion.value = event.matches
+        updateRevealResetMode()
         if (event.matches) {
+            stopParallaxAnimation()
             targetX.value = 0
             targetY.value = 0
             currentX.value = 0
@@ -477,8 +513,14 @@ onMounted(() => {
         motionQuery.addListener(onMotionChange)
     }
 
-    if (!reducedMotion.value) {
-        rafId = requestAnimationFrame(animateParallax)
+    onDesktopRevealChange = () => {
+        updateRevealResetMode()
+    }
+
+    if (typeof desktopRevealQuery.addEventListener === 'function') {
+        desktopRevealQuery.addEventListener('change', onDesktopRevealChange)
+    } else {
+        desktopRevealQuery.addListener(onDesktopRevealChange)
     }
 
     if (rootRef.value) {
@@ -489,9 +531,14 @@ onMounted(() => {
                 entries.forEach((entry) => {
                     if (entry.isIntersecting) {
                         entry.target.classList.add('is-visible')
+                        if (!revealResetEnabled.value) {
+                            revealObserver.unobserve(entry.target)
+                        }
                         return
                     }
-                    entry.target.classList.remove('is-visible')
+                    if (revealResetEnabled.value) {
+                        entry.target.classList.remove('is-visible')
+                    }
                 })
             },
             { threshold: 0.18 }
@@ -519,7 +566,7 @@ watch([storyQuery, selectedStoryGenre], () => {
 
 onBeforeUnmount(() => {
     window.removeEventListener('scroll', handleScroll)
-    cancelAnimationFrame(rafId)
+    stopParallaxAnimation()
 
     if (revealObserver) revealObserver.disconnect()
 
@@ -530,21 +577,22 @@ onBeforeUnmount(() => {
             motionQuery.removeListener(onMotionChange)
         }
     }
+
+    if (desktopRevealQuery && onDesktopRevealChange) {
+        if (typeof desktopRevealQuery.removeEventListener === 'function') {
+            desktopRevealQuery.removeEventListener('change', onDesktopRevealChange)
+        } else {
+            desktopRevealQuery.removeListener(onDesktopRevealChange)
+        }
+    }
 })
 </script>
 
 <template>
     <div ref="rootRef" class="min-h-screen page-bg" :class="{ 'motion-ready': motionReady }">
         <div class="mx-auto max-w-7xl p-4 md:p-8">
-            <TopNavbar
-                :scrolled="isScrolled"
-                :theme="theme"
-                :show-theme-toggle="true"
-                :show-public-shortcut="true"
-                logout-mode="emit"
-                @toggle-theme="toggleTheme"
-                @logout="handleLandingLogout"
-            />
+            <TopNavbar :scrolled="isScrolled" :theme="theme" :show-theme-toggle="true" :show-public-shortcut="true"
+                logout-mode="emit" @toggle-theme="toggleTheme" @logout="handleLandingLogout" />
 
             <section id="fitur" data-reveal-section
                 class="reveal-section grid gap-8 py-10 md:py-14 lg:grid-cols-2 lg:items-center" @mousemove="onHeroMove"
@@ -604,10 +652,10 @@ onBeforeUnmount(() => {
                     </div>
                     <form class="join mt-2 w-full" role="search" @submit.prevent="runStorySearch">
                         <label for="novel-search-input" class="sr-only">Cari novel publik</label>
+
                         <input id="novel-search-input" v-model="storyQuery" type="search"
-                            class="input input-bordered join-item w-full"
-                            aria-label="Cari novel publik"
-                            placeholder="Cari judul, genre, atau ringkasan..." />
+                            class="input input-bordered join-item w-full rounded-l-full focus:ring-0 focus:outline-none focus:border-primary"
+                            aria-label="Cari novel publik" placeholder="Cari judul, genre, atau ringkasan..." />
                         <button type="submit" class="btn btn-primary join-item">
                             <i class="bi bi-search"></i>
                             Search
@@ -615,7 +663,7 @@ onBeforeUnmount(() => {
                     </form>
                 </div>
             </section>
-            
+
             <section data-reveal-section class="reveal-section py-2">
                 <div v-if="publicStoriesLoading" class="alert">
                     <span class="flex items-center gap-2">
@@ -651,7 +699,8 @@ onBeforeUnmount(() => {
                             <p class="text-xs opacity-70 line-clamp-1">{{ story.genre }}</p>
                             <p class="text-[11px] opacity-60">Update {{ storyUpdatedLabel(story) }}</p>
                             <div class="card-actions justify-end">
-                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca Novel</RouterLink>
+                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca
+                                    Novel</RouterLink>
                             </div>
                         </div>
                     </article>
@@ -661,9 +710,11 @@ onBeforeUnmount(() => {
             <section id="trending" data-reveal-section class="reveal-section py-8">
                 <div data-reveal class="mb-4 reveal-item" style="--reveal-delay: 40ms;">
                     <h2 class="text-2xl md:text-3xl font-bold">Trending Saat Ini</h2>
-                    <p class="text-sm opacity-70">Diurutkan dari kombinasi pembaruan terbaru dan perkembangan naskah.</p>
+                    <p class="text-sm opacity-70">Diurutkan dari kombinasi pembaruan terbaru dan perkembangan naskah.
+                    </p>
                 </div>
-                <div v-if="trendingStories.length" class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-6">
+                <div v-if="trendingStories.length"
+                    class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-6">
                     <article v-for="(story, index) in trendingStories" :key="`trending-${story.id}`"
                         class="card bg-base-100 border border-base-300 shadow-sm reveal-card"
                         :style="{ '--stagger-index': index }">
@@ -678,7 +729,8 @@ onBeforeUnmount(() => {
                             <p class="text-xs opacity-70 line-clamp-1">{{ story.genre }}</p>
                             <div class="text-[11px] opacity-65">{{ story.words || 0 }} kata</div>
                             <div class="card-actions justify-end">
-                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca Novel</RouterLink>
+                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca
+                                    Novel</RouterLink>
                             </div>
                         </div>
                     </article>
@@ -692,7 +744,8 @@ onBeforeUnmount(() => {
                     <h2 class="text-2xl md:text-3xl font-bold">Rekomendasi untuk Kamu</h2>
                     <p class="text-sm opacity-70">Disusun dari aktivitas baca/bookmark dan tren yang sedang naik.</p>
                 </div>
-                <div v-if="recommendedStories.length" class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-6">
+                <div v-if="recommendedStories.length"
+                    class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-6">
                     <article v-for="(story, index) in recommendedStories" :key="`recommended-${story.id}`"
                         class="card bg-base-100 border border-base-300 shadow-sm reveal-card"
                         :style="{ '--stagger-index': index }">
@@ -705,7 +758,8 @@ onBeforeUnmount(() => {
                             <h3 class="line-clamp-2 text-base font-semibold leading-tight">{{ story.title }}</h3>
                             <p class="text-xs opacity-70 line-clamp-1">{{ story.genre }}</p>
                             <div class="card-actions justify-end">
-                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca Novel</RouterLink>
+                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca
+                                    Novel</RouterLink>
                             </div>
                         </div>
                     </article>
@@ -718,9 +772,11 @@ onBeforeUnmount(() => {
             <section id="novel-selesai" data-reveal-section class="reveal-section py-8">
                 <div data-reveal class="mb-4 reveal-item" style="--reveal-delay: 40ms;">
                     <h2 class="text-2xl md:text-3xl font-bold">Novel Selesai</h2>
-                    <p class="text-sm opacity-70">Koleksi novel berstatus Completed (dengan fallback deteksi konten final).</p>
+                    <p class="text-sm opacity-70">Koleksi novel berstatus Completed (dengan fallback deteksi konten
+                        final).</p>
                 </div>
-                <div v-if="completedStories.length" class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-6">
+                <div v-if="completedStories.length"
+                    class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-6">
                     <article v-for="(story, index) in completedStories" :key="`completed-${story.id}`"
                         class="card bg-base-100 border border-base-300 shadow-sm reveal-card"
                         :style="{ '--stagger-index': index }">
@@ -734,7 +790,8 @@ onBeforeUnmount(() => {
                             <h3 class="line-clamp-2 text-base font-semibold leading-tight">{{ story.title }}</h3>
                             <p class="text-xs opacity-70 line-clamp-1">{{ story.genre }}</p>
                             <div class="card-actions justify-end">
-                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca Novel</RouterLink>
+                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca
+                                    Novel</RouterLink>
                             </div>
                         </div>
                     </article>
@@ -750,11 +807,15 @@ onBeforeUnmount(() => {
                     <p class="text-sm opacity-70">Hub utama untuk menjelajah semua novel yang sudah dipublikasikan.</p>
                 </div>
 
-                <div class="mb-4 grid gap-3 rounded-xl border border-base-300 bg-base-100/80 p-3 md:grid-cols-[1fr_auto]">
+                <div
+                    class="mb-4 grid gap-3 rounded-xl border border-base-300 bg-base-100/80 p-3 md:grid-cols-[1fr_auto]">
                     <form class="join w-full" role="search" @submit.prevent="runStorySearch">
-                        <label for="novel-search-input-secondary" class="sr-only">Cari novel pada katalog lengkap</label>
-                        <input id="novel-search-input-secondary" v-model="storyQuery" type="search"
-                            class="input input-bordered join-item w-full"
+
+                        <label for="novel-search-input-secondary" class="sr-only">Cari novel pada katalog
+                            lengkap</label>
+
+                        <input id="novel-search-input-secondary " v-model="storyQuery" type="search"
+                            class="input input-bordered join-item w-full rounded-l-full focus:ring-0 focus:outline-none focus:border-primary"
                             aria-label="Cari novel pada katalog lengkap"
                             placeholder="Cari judul, genre, atau ringkasan..." />
                         <button type="submit" class="btn btn-primary join-item">
@@ -802,7 +863,8 @@ onBeforeUnmount(() => {
                             <p class="text-xs opacity-70 line-clamp-1">{{ story.genre }}</p>
                             <p class="text-[11px] opacity-60">Update {{ storyUpdatedLabel(story) }}</p>
                             <div class="card-actions justify-end">
-                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca Novel</RouterLink>
+                                <RouterLink :to="storyDetailRoute(story)" class="btn btn-xs sm:btn-sm btn-primary">Baca
+                                    Novel</RouterLink>
                             </div>
                         </div>
                     </article>
@@ -846,16 +908,19 @@ onBeforeUnmount(() => {
             </section>
 
             <section id="paket" class="reveal-section py-8 pb-12" data-reveal-section>
-                <div class="card border border-primary/30 bg-base-100/80 shadow-xl reveal-item" style="--reveal-delay: 80ms;">
+                <div class="card border border-primary/30 bg-base-100/80 shadow-xl reveal-item"
+                    style="--reveal-delay: 80ms;">
                     <div class="card-body md:flex-row md:items-center md:justify-between">
                         <div>
                             <h2 class="card-title text-2xl">Lanjutkan ke Workspace</h2>
-                            <p class="text-sm opacity-70">Kalau kamu siap menulis, lanjutkan ke workspace pribadi Scriptoria.</p>
+                            <p class="text-sm opacity-70">Kalau kamu siap menulis, lanjutkan ke workspace pribadi
+                                Scriptoria.</p>
                         </div>
                         <div class="text-right">
                             <p class="text-3xl font-black">Scriptoria</p>
                             <p class="text-xs opacity-70">Discovery untuk pembaca, workspace untuk penulis</p>
-                            <RouterLink :to="workspaceRoute" class="btn btn-primary mt-2">{{ workspaceLabel }}</RouterLink>
+                            <RouterLink :to="workspaceRoute" class="btn btn-primary mt-2">{{ workspaceLabel }}
+                            </RouterLink>
                         </div>
                     </div>
                 </div>
@@ -905,14 +970,14 @@ onBeforeUnmount(() => {
                         <form class="join w-full" @submit.prevent="handleNewsletterSubmit">
                             <label for="newsletter-email-input" class="sr-only">Email newsletter</label>
                             <input v-model="newsletterEmail" type="email" class="input input-bordered join-item w-full"
-                                id="newsletter-email-input"
-                                aria-label="Email newsletter"
+                                id="newsletter-email-input" aria-label="Email newsletter"
                                 placeholder="email@scriptoria.id" />
                             <button type="submit" class="btn btn-primary join-item">
                                 Join
                             </button>
                         </form>
-                        <p class="mt-2 text-xs opacity-75 min-h-4" aria-live="polite">{{ newsletterState || `© ${currentYear} Scriptoria`
+                        <p class="mt-2 text-xs opacity-75 min-h-4" aria-live="polite">{{ newsletterState || `©
+                            ${currentYear} Scriptoria`
                             }}</p>
                     </div>
                 </div>
@@ -922,9 +987,12 @@ onBeforeUnmount(() => {
         <div class="landing-mobile-cta fixed inset-x-3 bottom-3 z-[60] md:hidden">
             <div class="rounded-2xl border border-base-300 bg-base-100/85 p-2 shadow-xl backdrop-blur-lg">
                 <div class="flex items-center gap-2">
-                    <RouterLink v-if="!auth.isAuthenticated" :to="{ name: 'login' }" class="btn btn-outline btn-sm flex-1">Login</RouterLink>
-                    <button v-else type="button" class="btn btn-outline btn-sm flex-1" @click="handleLandingLogout">Logout</button>
-                    <RouterLink :to="workspaceRoute" class="btn btn-primary btn-sm flex-1">{{ auth.isAuthenticated ? 'Karya Saya' : 'Buka Scriptoria' }}
+                    <RouterLink v-if="!auth.isAuthenticated" :to="{ name: 'login' }"
+                        class="btn btn-outline btn-sm flex-1">Login</RouterLink>
+                    <button v-else type="button" class="btn btn-outline btn-sm flex-1"
+                        @click="handleLandingLogout">Logout</button>
+                    <RouterLink :to="workspaceRoute" class="btn btn-primary btn-sm flex-1">{{ auth.isAuthenticated ?
+                        'Karya Saya' : 'Buka Scriptoria' }}
                     </RouterLink>
                 </div>
             </div>

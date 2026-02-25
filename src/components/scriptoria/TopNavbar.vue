@@ -171,12 +171,14 @@ async function handleLogout() {
 
                 <div v-if="!isAuthenticated" class="flex items-center gap-1">
                     <RouterLink :to="{ name: 'register' }" class="btn btn-xs btn-outline xl:btn-sm">
-                        <i class="bi bi-person-plus"></i>
-                        Daftar
+                        <a class="tooltip tooltip-button" data-tip="Daftar Akun">
+                            <i class="bi bi-person-plus"></i>
+                        </a>
                     </RouterLink>
                     <RouterLink :to="{ name: 'login' }" class="btn btn-xs btn-primary xl:btn-sm">
-                        <i class="bi bi-box-arrow-in-right"></i>
-                        Login
+                        <a class="tooltip tooltip-button" data-tip="Login Akun">
+                            <i class="bi bi-box-arrow-in-right"></i>
+                        </a>
                     </RouterLink>
                 </div>
 

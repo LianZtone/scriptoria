@@ -2,7 +2,7 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import loginArt from '../assets/newsletter-subscriber_plsr.svg'
+import loginArt from '../assets/scriptoria.png'
 
 const route = useRoute()
 const router = useRouter()
