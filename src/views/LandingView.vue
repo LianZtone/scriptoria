@@ -487,9 +487,11 @@ onMounted(() => {
         revealObserver = new IntersectionObserver(
             (entries) => {
                 entries.forEach((entry) => {
-                    if (!entry.isIntersecting) return
-                    entry.target.classList.add('is-visible')
-                    revealObserver.unobserve(entry.target)
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('is-visible')
+                        return
+                    }
+                    entry.target.classList.remove('is-visible')
                 })
             },
             { threshold: 0.18 }

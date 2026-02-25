@@ -1,3 +1,4 @@
+
 # Scriptoria (Vue 3 + Auth API)
 
 Scriptoria adalah ruang digital pribadi untuk menulis, mengelola, dan membagikan cerita dengan pengalaman baca yang cepat, bersih, dan fokus pada isi.
@@ -106,3 +107,6 @@ Admin:
 - `POST /api/admin/users`
 - `PATCH /api/admin/users/:id/role`
 - `GET /api/admin/audit-logs`
+
+# scriptoria
+>>>>>>> 3c5ccbb971bc37dbebe1d25231a17eb33c29e016
